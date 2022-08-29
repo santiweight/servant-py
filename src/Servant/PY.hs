@@ -8,8 +8,6 @@ module Servant.PY ( -- * Generating python code from an API type
   PythonGenerator
   , python
   , pythonTyped
-  , writePythonForAPI
-  , pyForAPI
   , pyTypedForAPI
   , writeTypedPythonForAPI
   , -- * Options common to all generators
@@ -35,6 +33,7 @@ import           Data.Proxy
 import           Data.Text           (Text)
 import qualified Data.Text           as T
 import           Servant.Foreign
+import Parcel
 
 import           Servant.PY.Internal
 import           Servant.PY.Python
@@ -55,34 +54,14 @@ pythonTyped p = foreignFor (Proxy :: Proxy Python) (Proxy :: Proxy Text) p defRe
 -- | Directly generate all the Python functions for your API
 --   from a 'Proxy' for your API type. You can then write it to
 --   a file or integrate it in a page, for example.
-pyForAPI :: (HasForeign NoTypes NoContent api, GenerateList NoContent (Foreign NoContent api))
+pyTypedForAPI :: (HasForeign Python ParcelRepr api, GenerateList ParcelRepr (Foreign ParcelRepr api))
          => Proxy api -- ^ proxy for your API type
          -> PythonGenerator -- ^ python code generator to use (requests is the only one for now)
          -> Text                -- ^ a text that you can embed in your pages or write to a file
-pyForAPI p gen = gen (UnTypedPythonRequest <$> listFromAPI (Proxy :: Proxy NoTypes) (Proxy :: Proxy NoContent) p)
-
--- | Directly generate all the Python functions for your API
---   from a 'Proxy' for your API type using the given generator
---   and write the resulting code to a file at the given path.
-writePythonForAPI :: (HasForeign NoTypes NoContent api, GenerateList NoContent (Foreign NoContent api))
-              => Proxy api -- ^ proxy for your API type
-              -> PythonGenerator -- ^ python code generator to use (requests is the only one for now)
-              -> FilePath -- ^ path to the file you want to write the resulting javascript code into
-              -> IO ()
-writePythonForAPI p gen fp = writeFile fp (T.unpack $ pyForAPI p gen)
+pyTypedForAPI p gen = gen (PythonRequest <$> listFromAPI (Proxy :: Proxy Python) (Proxy :: Proxy ParcelRepr) p)
 
 
--- | Directly generate all the Python functions for your API
---   from a 'Proxy' for your API type. You can then write it to
---   a file or integrate it in a page, for example.
-pyTypedForAPI :: (HasForeign Python T.Text api, GenerateList T.Text (Foreign T.Text api))
-         => Proxy api -- ^ proxy for your API type
-         -> PythonGenerator -- ^ python code generator to use (requests is the only one for now)
-         -> Text                -- ^ a text that you can embed in your pages or write to a file
-pyTypedForAPI p gen = gen (TypedPythonRequest <$> listFromAPI (Proxy :: Proxy Python) (Proxy :: Proxy T.Text) p)
-
-
-writeTypedPythonForAPI :: (HasForeign Python T.Text api, GenerateList T.Text (Foreign T.Text api))
+writeTypedPythonForAPI :: (HasForeign Python ParcelRepr api, GenerateList ParcelRepr (Foreign ParcelRepr api))
               => Proxy api -- ^ proxy for your API type
               -> PythonGenerator -- ^ python code generator to use (requests is the only one for now)
               -> FilePath -- ^ path to the file you want to write the resulting javascript code into

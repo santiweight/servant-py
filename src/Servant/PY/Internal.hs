@@ -1,64 +1,85 @@
-{-# LANGUAGE DataKinds           #-}
-{-# LANGUAGE KindSignatures      #-}
-{-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Servant.PY.Internal
-  ( PythonGenerator
-  , ReturnStyle(..)
-  , PythonRequest(..)
-  , PyRequestArgs(..)
-  , CommonGeneratorOptions(..)
-  , defCommonGeneratorOptions
-  , defaultPyIndent
-  , indent
-  , Indent
-  , indenter
-  , makePyUrl
-  , makePyUrl'
-  , segmentToStr
-  , capturesToFormatArgs
-  , toValidFunctionName
-  , functionName
-  , toPyHeader
-  , retrieveHeaders
-  , getHeaderDict
-  , retrieveHeaderText
-  , toPyDict
-  , toPyParams
-  , getParams
-  , paramNames
-  , captures
-  , getMethod
-  , hasBody
-  , withFormattedCaptures
-  , buildDocString
-  , buildHeaderDict
-  , functionArguments
-  , formatBuilder
-  , remainingReqCall
-  ) where
+  ( PythonGenerator,
+    ReturnStyle (..),
+    PythonRequest (..),
+    CommonGeneratorOptions (..),
+    defCommonGeneratorOptions,
+    defaultPyIndent,
+    indent,
+    Indent,
+    indenter,
+    makePyUrl,
+    segmentToStr,
+    capturesToFormatArgs,
+    toValidFunctionName,
+    functionName,
+    toPyHeader,
+    retrieveHeaders,
+    getHeaderDict,
+    toPyDict,
+    paramNamesAndTys,
+    captures,
+    getMethod,
+    hasBody,
+    withFormattedCaptures,
+    buildDocString,
+    buildHeaderDict,
+    formatBuilder,
+    getBodyTy,
+  )
+where
 
-import           Control.Lens                  hiding (List)
-import qualified Data.CharSet                  as Set
+import Control.Applicative (liftA2)
+import Control.Lens hiding (List)
+import Data.Bifunctor (Bifunctor (second))
+import qualified Data.CharSet as Set
 import qualified Data.CharSet.Unicode.Category as Set
-import           Data.Data
-import           Data.Maybe                    (isJust)
-import           Data.Monoid                   ( (<>) )
-import           Data.Text                     (Text)
-import qualified Data.Text                     as T
-import           Data.Text.Encoding            (decodeUtf8)
-import           GHC.TypeLits
-import           Servant.Foreign
-
+import Data.Data
+import Data.Maybe (isJust)
+import Data.Text (Text)
+import qualified Data.Text as T
+import Data.Text.Encoding (decodeUtf8)
+import GHC.TypeLits
+import Parcel
+import Parcel.Python.Gen
+import Servant.Foreign
+  ( FunctionName,
+    HeaderArg (HeaderArg, ReplaceHeaderArg),
+    PathSegment (unPathSegment),
+    QueryArg,
+    Req,
+    Segment (Segment),
+    SegmentType (Cap, Static),
+    argName,
+    argPath,
+    argType,
+    captureArg,
+    headerArg,
+    isCapture,
+    path,
+    queryArgName,
+    queryStr,
+    reqBody,
+    reqFuncName,
+    reqHeaders,
+    reqMethod,
+    reqUrl,
+    snakeCase,
+    _PathSegment,
+  )
 
 -- A 'PythonGenerator' just takes the data found in the API type
 -- for each endpoint and generates Python code as Text.
 -- There are `NoContent` requests and Text requests with typing information.
 type PythonGenerator = [PythonRequest] -> Text
-data PythonRequest = TypedPythonRequest (Req Text)
-                   | UnTypedPythonRequest (Req NoContent)
-                   deriving (Eq, Show)
+
+newtype PythonRequest = PythonRequest (Req ParcelRepr)
+  deriving (Eq, Show)
 
 -- We'd like to encode at the type-level that indentation
 -- is some multiplication of whitespace (sorry: never tabs!)
@@ -78,33 +99,25 @@ indenter :: Int -> Proxy Indent -> Text
 indenter width space = mconcat $ width `replicate` (T.pack . symbolVal) space
 {-# INLINE indenter #-}
 
-
 -- Created python Functions can have different return styles
-data ReturnStyle = DangerMode  -- Throw caution to the wind and return JSON
-                 | RawResponse  -- Return response object itself
-
-
-data PyRequestArgs = PyRequestArgs {
-  hasHeaders  :: Bool
-  , hasParams :: Bool
-  , hasData   :: Bool
-  } deriving (Show)
+data ReturnStyle
+  = DangerMode -- Throw caution to the wind and return JSON
+  | RawResponse -- Return response object itself
 
 -- | This structure is used by specific implementations to let you
 -- customize the output
 data CommonGeneratorOptions = CommonGeneratorOptions
-  {
-    functionNameBuilder :: FunctionName -> Text
-    -- ^ function generating function names
-  , requestBody         :: Text
-    -- ^ name used when a user want to send the request body
+  { -- | function generating function names
+    functionNameBuilder :: FunctionName -> Text,
+    -- | name used when a user want to send the request body
     -- (to let you redefine it)
-  , urlPrefix           :: Text
-    -- ^ a prefix we should add to the Url in the codegen
-  , indentation         :: Proxy Indent -> Text
-  -- ^ indentation to use for Python codeblocks. Create this function by passing an Int to indenter.
-  , returnMode          :: ReturnStyle
-  -- ^ whether the generated functions return the raw response or content
+    requestBody :: Text,
+    -- | a prefix we should add to the Url in the codegen
+    urlPrefix :: Text,
+    -- | indentation to use for Python codeblocks. Create this function by passing an Int to indenter.
+    indentation :: Proxy Indent -> Text,
+    -- | whether the generated functions return the raw response or content
+    returnMode :: ReturnStyle
   }
 
 -- | Default options.
@@ -119,14 +132,14 @@ data CommonGeneratorOptions = CommonGeneratorOptions
 -- >   }
 -- @
 defCommonGeneratorOptions :: CommonGeneratorOptions
-defCommonGeneratorOptions = CommonGeneratorOptions
-  {
-    functionNameBuilder = snakeCase
-  , requestBody = "data"
-  , urlPrefix = "http://localhost:8000"
-  , indentation = defaultPyIndent
-  , returnMode = DangerMode
-  }
+defCommonGeneratorOptions =
+  CommonGeneratorOptions
+    { functionNameBuilder = snakeCase,
+      requestBody = "data",
+      urlPrefix = "http://localhost:8000",
+      indentation = defaultPyIndent,
+      returnMode = DangerMode
+    }
 
 -- | Attempts to reduce the function name provided to that allowed by @'Foreign'@.
 --
@@ -137,32 +150,36 @@ defCommonGeneratorOptions = CommonGeneratorOptions
 toValidFunctionName :: Text -> Text
 toValidFunctionName t =
   case T.uncons t of
-    Just (x,xs) ->
+    Just (x, xs) ->
       setFirstChar x `T.cons` T.filter remainder xs
     Nothing -> "_"
   where
     setFirstChar c = if Set.member c firstLetterOK then c else '_'
     remainder c = Set.member c remainderOK
-    firstLetterOK = filterBmpChars $ mconcat
-                      [ Set.fromDistinctAscList "_"
-                      , Set.lowercaseLetter
-                      , Set.uppercaseLetter
-                      , Set.titlecaseLetter
-                      , Set.modifierLetter
-                      , Set.otherLetter
-                      , Set.letterNumber
-                      ]
-    remainderOK   = firstLetterOK
-               <> filterBmpChars (mconcat
-                    [ Set.nonSpacingMark
-                    , Set.spacingCombiningMark
-                    , Set.decimalNumber
-                    , Set.connectorPunctuation
-                    ])
+    firstLetterOK =
+      filterBmpChars $
+        mconcat
+          [ Set.fromDistinctAscList "_",
+            Set.lowercaseLetter,
+            Set.uppercaseLetter,
+            Set.titlecaseLetter,
+            Set.modifierLetter,
+            Set.otherLetter,
+            Set.letterNumber
+          ]
+    remainderOK =
+      firstLetterOK
+        <> filterBmpChars
+          ( mconcat
+              [ Set.nonSpacingMark,
+                Set.spacingCombiningMark,
+                Set.decimalNumber,
+                Set.connectorPunctuation
+              ]
+          )
 
 functionName :: CommonGeneratorOptions -> PythonRequest -> Text
-functionName opts (TypedPythonRequest req) = toValidFunctionName (functionNameBuilder opts $ req ^. reqFuncName)
-functionName opts (UnTypedPythonRequest req) = toValidFunctionName (functionNameBuilder opts $ req ^. reqFuncName)
+functionName opts (PythonRequest req) = toValidFunctionName (functionNameBuilder opts $ req ^. reqFuncName)
 
 -- Identifiers can only contain codepoints in the Basic Multilingual Plane
 -- that is, codepoints that can be encoded in UTF-16 without a surrogate pair (UCS-2)
@@ -173,40 +190,30 @@ filterBmpChars = Set.filter (< '\65536')
 -- This function creates a dict where the keys are string representations of variable
 -- names. This is due to the way arguments are passed into the function, and these
 -- arguments named params. In other words, [("key", "key")] becomes: {"key": key}
-toPyDict :: Text -> [Text] -> Text
-toPyDict offset dict
+toPyDict :: [Text] -> Text
+toPyDict dict
   | null dict = "{}"
-  | otherwise = "{" <> T.intercalate (",\n" <> offset) insides <> "}"
-  where insides = combiner <$> dict
-        combiner a = "\"" <> a <> "\": " <> a
-
--- Query params are passed into the function that makes the request, so we make
--- a python dict out of them.
-getParams :: Text -> PythonRequest -> Text
-getParams offset (TypedPythonRequest req) = toPyParams offset $ req ^.. reqUrl.queryStr.traverse
-getParams offset (UnTypedPythonRequest req) = toPyParams offset $ req ^.. reqUrl.queryStr.traverse
-
-toPyParams :: Text -> [QueryArg f] -> Text
-toPyParams _ [] = ""
-toPyParams offset qargs = toPyDict offset paramList
-  where paramList = fmap (\qarg -> qarg ^. queryArgName.argName._PathSegment) qargs
+  | otherwise = "{" <> T.intercalate "," insides <> "}"
+  where
+    insides = combiner <$> dict
+    combiner a = "\"" <> a <> "\": " <> a
 
 -- We also need to make sure we can retrieve just the param names for function args.
-paramNames :: PythonRequest -> [Text]
-paramNames (TypedPythonRequest req) = map (view $ queryArgName . argPath) $ req ^.. reqUrl.queryStr.traverse
-paramNames (UnTypedPythonRequest req) = map (view $ queryArgName . argPath) $ req ^.. reqUrl.queryStr.traverse
+paramNamesAndTys :: PythonRequest -> [(Text, Maybe Ty)]
+paramNamesAndTys (PythonRequest req) = map (\arg -> (view (queryArgName . argPath) arg, Just $ parcelToTy $ arg ^. queryArgName . argType)) $ req ^.. reqUrl . queryStr . traverse
 
 -- Request headers are also passed into the function that makes the request, so we make
 -- a python dict out of them.
 toPyHeader :: HeaderArg f -> Text
-toPyHeader (HeaderArg n)
-  = toValidFunctionName ("header" <> n ^. argName . _PathSegment)
+toPyHeader (HeaderArg n) =
+  toValidFunctionName ("header" <> n ^. argName . _PathSegment)
 toPyHeader (ReplaceHeaderArg n p)
   | pn `T.isPrefixOf` p = pv <> " + \"" <> rp <> "\""
   | pn `T.isSuffixOf` p = "\"" <> rp <> "\" + " <> pv
-  | pn `T.isInfixOf` p  = "\"" <> T.replace pn ("\" + " <> pv <> " + \"") p
-                             <> "\""
-  | otherwise         = p
+  | pn `T.isInfixOf` p =
+      "\"" <> T.replace pn ("\" + " <> pv <> " + \"") p
+        <> "\""
+  | otherwise = p
   where
     pv = toValidFunctionName ("header" <> n ^. argName . _PathSegment)
     pn = "{" <> n ^. argName . _PathSegment <> "}"
@@ -215,124 +222,100 @@ toPyHeader (ReplaceHeaderArg n p)
 buildHeaderDict :: [HeaderArg f] -> Text
 buildHeaderDict [] = ""
 buildHeaderDict hs = "{" <> headers <> "}"
-  where headers = T.intercalate ", " $ map headerStr hs
-        headerStr h = "\"" <> h ^. headerArg . argPath <> "\": "
-                           <> toPyHeader h
+  where
+    headers = T.intercalate ", " $ map headerStr hs
+    headerStr h =
+      "\"" <> h ^. headerArg . argPath <> "\": "
+        <> toPyHeader h
 
 getHeaderDict :: PythonRequest -> Text
-getHeaderDict (TypedPythonRequest req) = buildHeaderDict $ req ^. reqHeaders
-getHeaderDict (UnTypedPythonRequest req) = buildHeaderDict $ req ^. reqHeaders
+getHeaderDict (PythonRequest req) = buildHeaderDict $ req ^. reqHeaders
 
-retrieveHeaders :: PythonRequest -> [Text]
-retrieveHeaders (TypedPythonRequest req) = retrieveHeaderText <$> req ^. reqHeaders
-retrieveHeaders (UnTypedPythonRequest req) = retrieveHeaderText <$> req ^. reqHeaders
+retrieveHeaders :: PythonRequest -> [(Text, Ty)]
+retrieveHeaders (PythonRequest req) = (\arg -> (arg ^. argPath, parcelToTy $ arg ^. argType)) <$> req ^.. reqHeaders . each . headerArg
 
-retrieveHeaderText :: forall f. HeaderArg f -> Text
-retrieveHeaderText h = h ^. headerArg . argPath
+captures :: PythonRequest -> [(Text, Maybe Ty)]
+captures (PythonRequest req) = second Just <$> capturesTy' req
 
+capturesTy' :: Req ParcelRepr -> [(Text, Ty)]
+capturesTy' req =
+  map (liftA2 (,) (unPathSegment . view argName) (parcelToTy . view argType) . captureArg)
+    . filter isCapture
+    $ req ^. reqUrl . path
 
-functionArguments :: forall f. Req f -> Text
-functionArguments req =
-  mconcat [ T.intercalate ", " args]
+makePyUrl :: CommonGeneratorOptions -> PythonRequest -> Text
+makePyUrl opts (PythonRequest req) = "\"" <> url <> "\"" <> withFormattedCaptures pathParts
   where
-    args = captures' req ++ qparam ++ body ++ headers
-
-    qparam = map ((<>) "param_" . view (queryArgName . argPath)) queryParams
-
-    body = if isJust $ req ^. reqBody
-           then ["data"]
-           else []
-    queryParams = req ^.. reqUrl . queryStr . traverse
-    headers = map ((<>) "header_"
-                    . view (headerArg . argPath)
-                  ) $ req ^. reqHeaders
-
-captures :: PythonRequest -> [Text]
-captures (TypedPythonRequest req)   = captures' req
-captures (UnTypedPythonRequest req) = captures' req
-
-
-captures' :: forall f. Req f -> [Text]
-captures' req = map (view argPath . captureArg)
-         . filter isCapture
-         $ req ^. reqUrl.path
-
-makePyUrl :: CommonGeneratorOptions -> PythonRequest -> Text -> Text
-makePyUrl opts (TypedPythonRequest req) offset   = makePyUrl' opts req offset
-makePyUrl opts (UnTypedPythonRequest req) offset = makePyUrl' opts req offset
-
-makePyUrl' :: forall f. CommonGeneratorOptions -> Req f -> Text -> Text
-makePyUrl' opts req offset = "\"" <> url <> "\"" <> withFormattedCaptures offset pathParts
-  where url = urlPrefix opts <> "/" <> getSegments pathParts
-        pathParts = req ^.. reqUrl.path.traverse
+    url = urlPrefix opts <> "/" <> getSegments pathParts
+    pathParts = req ^.. reqUrl . path . traverse
 
 getSegments :: forall f. [Segment f] -> Text
-getSegments segments = if null segments
-                       then ""
-                       else T.intercalate "/" (map segmentToStr segments)
+getSegments segments =
+  if null segments
+    then ""
+    else T.intercalate "/" (map segmentToStr segments)
 
-withFormattedCaptures :: Text -> [Segment f] -> Text
-withFormattedCaptures offset segments = formattedCaptures (capturesToFormatArgs segments)
-  where formattedCaptures [] = ""
-        formattedCaptures xs = ".format(\n" <> offset
-                              <> T.intercalate (",\n" <> offset) (map formatBuilder xs)
-                              <> ")"
+withFormattedCaptures :: [Segment f] -> Text
+withFormattedCaptures segments = formattedCaptures (capturesToFormatArgs segments)
+  where
+    formattedCaptures [] = ""
+    formattedCaptures xs =
+      ".format(\n"
+        <> T.intercalate "," (map formatBuilder xs)
+        <> ")"
 
 formatBuilder :: Text -> Text
-formatBuilder val = val <> "=parse.quote(str("<> val <> "))"
+formatBuilder val = val <> "=parse.quote(str(" <> val <> "))"
 
 segmentToStr :: Segment f -> Text
 segmentToStr (Segment (Static s)) = s ^. _PathSegment
-segmentToStr (Segment (Cap s))    = "{" <> s ^. argName . _PathSegment <> "}"
+segmentToStr (Segment (Cap s)) = "{" <> s ^. argName . _PathSegment <> "}"
 
 capturesToFormatArgs :: [Segment f] -> [Text]
 capturesToFormatArgs segments = map getSegment $ filter isCapture segments
-  where getSegment (Segment (Cap a)) = getCapture a
-        getSegment _                 = ""
-        getCapture s = s ^. argName . _PathSegment
+  where
+    getSegment (Segment (Cap a)) = getCapture a
+    getSegment _ = ""
+    getCapture s = s ^. argName . _PathSegment
 
-captureArgsWithTypes :: [Segment Text] -> [Text]
-captureArgsWithTypes segments =  map getSegmentArgType (filter isCapture segments)
-  where getSegmentArgType (Segment (Cap a)) = pathPart a <> " (" <> a ^. argType <> ")"
-        getSegmentArgType _                 = ""
-        pathPart s = s ^. argName . _PathSegment
-
+captureArgsWithTypes :: [Segment ParcelRepr] -> [Text]
+captureArgsWithTypes segments = map getSegmentArgType (filter isCapture segments)
+  where
+    getSegmentArgType (Segment (Cap a)) = pathPart a <> " (" <> tyToPyTy (parcelToTy $ a ^. argType) <> ")"
+    getSegmentArgType _ = ""
+    pathPart s = s ^. argName . _PathSegment
 
 buildDocString :: PythonRequest -> CommonGeneratorOptions -> Text -> Text
-buildDocString (TypedPythonRequest req) opts returnVal = buildDocString' req opts args returnVal
-  where args = captureArgsWithTypes $ req ^.. reqUrl.path.traverse
-buildDocString (UnTypedPythonRequest req) opts returnVal = buildDocString' req opts args returnVal
-  where args = capturesToFormatArgs $ req ^.. reqUrl.path.traverse
+buildDocString (PythonRequest req) opts returnVal = buildDocString' req opts args returnVal
+  where
+    args = captureArgsWithTypes $ req ^.. reqUrl . path . traverse
 
 buildDocString' :: forall f. Req f -> CommonGeneratorOptions -> [Text] -> Text -> Text
-buildDocString' req opts args returnVal = T.toUpper method <> " /" <> url <> "\n"
-                                                  <> includeArgs <> "\n\n"
-                                                  <> indent' <> "Returns:\n"
-                                                  <> indent' <> indent' <> returnVal
-  where method = decodeUtf8 $ req ^. reqMethod
-        url = getSegments $ req ^.. reqUrl.path.traverse
-        includeArgs = if null args then "" else argDocs
-        argDocs = indent' <> "Args:\n"
-                  <> indent' <> indent' <> T.intercalate ("\n" <> indent' <> indent') args
-        indent' = indentation opts indent
+buildDocString' req opts args returnVal =
+  T.toUpper method <> " /" <> url <> "\n"
+    <> includeArgs
+    <> "\n\n"
+    <> indent'
+    <> "Returns:\n"
+    <> indent'
+    <> indent'
+    <> returnVal
+  where
+    method = decodeUtf8 $ req ^. reqMethod
+    url = getSegments $ req ^.. reqUrl . path . traverse
+    includeArgs = if null args then "" else argDocs
+    argDocs =
+      indent' <> "Args:\n"
+        <> indent'
+        <> indent'
+        <> T.intercalate ("\n" <> indent' <> indent') args
+    indent' = indentation opts indent
 
 getMethod :: PythonRequest -> Text
-getMethod (TypedPythonRequest req) = decodeUtf8 $ req ^. reqMethod
-getMethod (UnTypedPythonRequest req) = decodeUtf8 $ req ^. reqMethod
+getMethod (PythonRequest req) = decodeUtf8 $ req ^. reqMethod
 
 hasBody :: PythonRequest -> Bool
-hasBody (TypedPythonRequest req) = isJust (req ^. reqBody)
-hasBody (UnTypedPythonRequest req) = isJust (req ^. reqBody)
+hasBody (PythonRequest req) = isJust (req ^. reqBody)
 
-remainingReqCall :: PyRequestArgs -> Int -> Text
-remainingReqCall reqArgs width
-  | null argsAsList = ")"
-  | length argsAsList == 1 = ",\n" <> offset <> head argsAsList <> ")\n"
-  | otherwise = ",\n" <> offset <> T.intercalate (",\n" <> offset) argsAsList <> ")\n"
-  where argsAsList = requestArgsToList reqArgs
-        offset = mconcat $ replicate width " "
-
-requestArgsToList :: PyRequestArgs -> [Text]
-requestArgsToList reqArgs = map snd . filter fst $ zip bools strings
-  where bools = [hasHeaders reqArgs, hasParams reqArgs, hasData reqArgs]
-        strings = ["headers=headers", "params=params", "json=data"]
+getBodyTy :: PythonRequest -> Maybe ParcelRepr
+getBodyTy (PythonRequest req) = req ^. reqBody

@@ -7,7 +7,7 @@
 {-# LANGUAGE TypeOperators       #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module Servant.PYSpec where
+module Test.Servant.PYSpec where
 
 import           Data.Monoid                                ()
 import           Data.Proxy()
@@ -24,7 +24,7 @@ import           Test.QuickCheck                            (Arbitrary (..),
                                                              property)
 
 import           Servant.API.ContentTypes()
-import           Servant.API.Internal.Test.ComprehensiveAPI()
+import           Servant.Test.ComprehensiveAPI()
 
 import           Servant.PY.Internal
 
@@ -34,9 +34,6 @@ customOptions = defCommonGeneratorOptions
  { urlPrefix = "urlForRequesting:9000"
  , returnMode = DangerMode
  }
-
-spec :: Spec
-spec = describe "Servant.PY.Internal" internalSpec
 
 shouldContain :: Text -> Text -> Expectation
 a `shouldContain` b  = shouldSatisfy a (T.isInfixOf b)
@@ -50,10 +47,5 @@ instance Arbitrary ASCII where
    -- Our arbitrary instance is generating only ASCII, since the language-ecmascript's lexer
    -- is currently (October 2016) still a bit naïve
    arbitrary = fmap (ASCII . T.pack) $ listOf $ choose (minBound, '\127')
-   shrink xs = (ASCII . T.pack) <$> shrink (T.unpack $ getASCII xs)
+   shrink xs = ASCII . T.pack <$> shrink (T.unpack $ getASCII xs)
 
-
-internalSpec :: Spec
-internalSpec = describe "Internal" $ do
-    it "should only indent using whitespace" $
-      property $ \n -> indenter n indent == mconcat (replicate n (T.pack " "))
