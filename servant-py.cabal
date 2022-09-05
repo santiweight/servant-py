@@ -83,14 +83,21 @@ test-suite servant-py-test
                      , aeson
                      , base-compat
                      , bytestring
+                     , directory
                      , hspec
                      , lens
+                     , process
                      , QuickCheck
                      , servant
+                     , servant-server
                      , servant-foreign
                      , tasty
                      , tasty-golden
+                     , tasty-hunit
+                     , tasty-program
                      , text
+                     , wai
+                     , warp
   default-language:    Haskell2010
 
 source-repository head

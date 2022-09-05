@@ -57,6 +57,7 @@ defPyImports :: Text
 defPyImports =
   T.unlines
     [ "from urllib import parse",
+      "from typing import *",
       "", -- Separate stdlib from 3rd-party imports
       "import requests"
     ]
