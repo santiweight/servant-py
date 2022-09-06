@@ -9,10 +9,6 @@ module Servant.PY.Internal
     PythonRequest (..),
     CommonGeneratorOptions (..),
     defCommonGeneratorOptions,
-    defaultPyIndent,
-    indent,
-    Indent,
-    indenter,
     makePyUrl,
     segmentToStr,
     capturesToFormatArgs,
@@ -27,8 +23,6 @@ module Servant.PY.Internal
     getMethod,
     hasBody,
     withFormattedCaptures,
-    buildDocString,
-    buildHeaderDict,
     formatBuilder,
     getBodyTy,
   )
@@ -39,19 +33,15 @@ import Control.Lens hiding (List)
 import Data.Bifunctor (Bifunctor (second))
 import qualified Data.CharSet as Set
 import qualified Data.CharSet.Unicode.Category as Set
-import Data.Data
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8)
-import GHC.TypeLits
 import Parcel
-import Parcel.Python.Gen
 import Servant.Foreign
   ( FunctionName,
     HeaderArg (HeaderArg, ReplaceHeaderArg),
     PathSegment (unPathSegment),
-    QueryArg,
     Req,
     Segment (Segment),
     SegmentType (Cap, Static),
@@ -72,6 +62,7 @@ import Servant.Foreign
     snakeCase,
     _PathSegment,
   )
+import qualified Language.Python.Common as Py
 
 -- A 'PythonGenerator' just takes the data found in the API type
 -- for each endpoint and generates Python code as Text.
@@ -80,24 +71,6 @@ type PythonGenerator = [PythonRequest] -> Text
 
 newtype PythonRequest = PythonRequest (Req ParcelRepr)
   deriving (Eq, Show)
-
--- We'd like to encode at the type-level that indentation
--- is some multiplication of whitespace (sorry: never tabs!)
-type Indent = (" " :: Symbol)
-
-indent :: Proxy Indent
-indent = Proxy
-
--- The defaultPyIndent function is 4 spaces.
--- You can create a different indentation width by passing a different Int to indenter.
-defaultPyIndent :: Proxy Indent -> Text
-defaultPyIndent = indenter 4
-
--- But you can create alternatives by specializing the `indenter` function
--- to other Ints. Then, to get your indentation, pass `indent` to the created function
-indenter :: Int -> Proxy Indent -> Text
-indenter width space = mconcat $ width `replicate` (T.pack . symbolVal) space
-{-# INLINE indenter #-}
 
 -- Created python Functions can have different return styles
 data ReturnStyle
@@ -112,10 +85,6 @@ data CommonGeneratorOptions = CommonGeneratorOptions
     -- | name used when a user want to send the request body
     -- (to let you redefine it)
     requestBody :: Text,
-    -- | a prefix we should add to the Url in the codegen
-    urlPrefix :: Text,
-    -- | indentation to use for Python codeblocks. Create this function by passing an Int to indenter.
-    indentation :: Proxy Indent -> Text,
     -- | whether the generated functions return the raw response or content
     returnMode :: ReturnStyle
   }
@@ -126,8 +95,6 @@ data CommonGeneratorOptions = CommonGeneratorOptions
 -- > defCommonGeneratorOptions = CommonGeneratorOptions
 -- >   { functionNameBuilder = snakeCase
 -- >   , requestBody = "body"
--- >   , urlPrefix = ""
--- >   , indentation = "    "  -- 4 spaces
 -- >   , returnMode = DangerMode
 -- >   }
 -- @
@@ -136,8 +103,6 @@ defCommonGeneratorOptions =
   CommonGeneratorOptions
     { functionNameBuilder = snakeCase,
       requestBody = "data",
-      urlPrefix = "http://localhost:8000",
-      indentation = defaultPyIndent,
       returnMode = DangerMode
     }
 
@@ -190,13 +155,10 @@ filterBmpChars = Set.filter (< '\65536')
 -- This function creates a dict where the keys are string representations of variable
 -- names. This is due to the way arguments are passed into the function, and these
 -- arguments named params. In other words, [("key", "key")] becomes: {"key": key}
-toPyDict :: [Text] -> Text
-toPyDict dict
-  | null dict = "{}"
-  | otherwise = "{" <> T.intercalate "," insides <> "}"
+toPyDict :: [Text] -> Py.Expr ()
+toPyDict names = Py.Dictionary entries ()
   where
-    insides = combiner <$> dict
-    combiner a = "\"" <> a <> "\": " <> a
+    entries = names <&> \name -> Py.DictMappingPair (string name) (v name)
 
 -- We also need to make sure we can retrieve just the param names for function args.
 paramNamesAndTys :: PythonRequest -> [(Text, Maybe Ty)]
@@ -219,17 +181,13 @@ toPyHeader (ReplaceHeaderArg n p)
     pn = "{" <> n ^. argName . _PathSegment <> "}"
     rp = T.replace pn "" p
 
-buildHeaderDict :: [HeaderArg f] -> Text
-buildHeaderDict [] = ""
-buildHeaderDict hs = "{" <> headers <> "}"
-  where
-    headers = T.intercalate ", " $ map headerStr hs
-    headerStr h =
-      "\"" <> h ^. headerArg . argPath <> "\": "
-        <> toPyHeader h
-
-getHeaderDict :: PythonRequest -> Text
-getHeaderDict (PythonRequest req) = buildHeaderDict $ req ^. reqHeaders
+getHeaderDict :: PythonRequest -> Py.Expr ()
+getHeaderDict (PythonRequest req) = case req ^. reqHeaders of
+  [] -> Py.Dictionary [] ()
+  hs -> Py.Dictionary headers ()
+    where
+      headers = dictEntry <$> hs
+      dictEntry h = Py.DictMappingPair (string (h ^. headerArg . argPath)) (v $ toPyHeader h)
 
 retrieveHeaders :: PythonRequest -> [(Text, Ty)]
 retrieveHeaders (PythonRequest req) = (\arg -> (arg ^. argPath, parcelToTy $ arg ^. argType)) <$> req ^.. reqHeaders . each . headerArg
@@ -243,10 +201,10 @@ capturesTy' req =
     . filter isCapture
     $ req ^. reqUrl . path
 
-makePyUrl :: CommonGeneratorOptions -> PythonRequest -> Text
-makePyUrl opts (PythonRequest req) = "\"" <> url <> "\"" <> withFormattedCaptures pathParts
+makePyUrl :: PythonRequest -> Text
+makePyUrl (PythonRequest req) = "self.api_base + \"" <> urlSuffix <> "\"" <> withFormattedCaptures pathParts
   where
-    url = urlPrefix opts <> "/" <> getSegments pathParts
+    urlSuffix = "/" <> getSegments pathParts
     pathParts = req ^.. reqUrl . path . traverse
 
 getSegments :: forall f. [Segment f] -> Text
@@ -277,39 +235,6 @@ capturesToFormatArgs segments = map getSegment $ filter isCapture segments
     getSegment (Segment (Cap a)) = getCapture a
     getSegment _ = ""
     getCapture s = s ^. argName . _PathSegment
-
-captureArgsWithTypes :: [Segment ParcelRepr] -> [Text]
-captureArgsWithTypes segments = map getSegmentArgType (filter isCapture segments)
-  where
-    getSegmentArgType (Segment (Cap a)) = pathPart a <> " (" <> tyToPyTy (parcelToTy $ a ^. argType) <> ")"
-    getSegmentArgType _ = ""
-    pathPart s = s ^. argName . _PathSegment
-
-buildDocString :: PythonRequest -> CommonGeneratorOptions -> Text -> Text
-buildDocString (PythonRequest req) opts returnVal = buildDocString' req opts args returnVal
-  where
-    args = captureArgsWithTypes $ req ^.. reqUrl . path . traverse
-
-buildDocString' :: forall f. Req f -> CommonGeneratorOptions -> [Text] -> Text -> Text
-buildDocString' req opts args returnVal =
-  T.toUpper method <> " /" <> url <> "\n"
-    <> includeArgs
-    <> "\n\n"
-    <> indent'
-    <> "Returns:\n"
-    <> indent'
-    <> indent'
-    <> returnVal
-  where
-    method = decodeUtf8 $ req ^. reqMethod
-    url = getSegments $ req ^.. reqUrl . path . traverse
-    includeArgs = if null args then "" else argDocs
-    argDocs =
-      indent' <> "Args:\n"
-        <> indent'
-        <> indent'
-        <> T.intercalate ("\n" <> indent' <> indent') args
-    indent' = indentation opts indent
 
 getMethod :: PythonRequest -> Text
 getMethod (PythonRequest req) = decodeUtf8 $ req ^. reqMethod

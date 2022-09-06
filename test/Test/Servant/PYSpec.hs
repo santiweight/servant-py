@@ -31,8 +31,7 @@ import           Servant.PY.Internal
 
 customOptions :: CommonGeneratorOptions
 customOptions = defCommonGeneratorOptions
- { urlPrefix = "urlForRequesting:9000"
- , returnMode = DangerMode
+ { returnMode = DangerMode
  }
 
 shouldContain :: Text -> Text -> Expectation

@@ -1,6 +1,15 @@
+import sys
 import api
 
-assert api.get_addparam(2,3) == 5
-# assert api.get_addparam(None,None) == None
+print(sys.argv)
+port = int(sys.argv[1])
 
-print('hello')
+client = api.Client("http://localhost:" + str(port))
+assert client.get_addparam(2, 3) == 5
+assert client.get_addparam(None, 3) == -1
+assert client.post_addbody((2, 3)) == 5
+assert client.get_addcapture_by_n1_by_n2(2, 3) == 5
+assert client.get_addheader(2, str(3)) == 5
+assert client.get_addheader(2, None) == -1
+assert client.post_addall_by_n1(1, 2, 3, str(4)) == 10
+assert client.post_addall_by_n1(1, None, 3, None) == 4
