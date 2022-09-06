@@ -83,6 +83,7 @@ test-suite servant-py-test
                      , aeson
                      , base-compat
                      , bytestring
+                     , containers
                      , directory
                      , hspec
                      , lens

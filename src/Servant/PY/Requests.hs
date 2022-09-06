@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -20,7 +21,7 @@ import Servant.PY.Internal
 -- | Generate python functions that use the requests library.
 --   Uses 'defCommonGeneratorOptions' for the generator options.
 requests :: PythonGenerator
-requests reqs = defPyImports <> mkDecls reqs <> "\n" <> prettyT (genPyClient defCommonGeneratorOptions reqs)
+requests reqs = mkDecls reqs <> "\n" <> prettyT (genPyClient defCommonGeneratorOptions reqs)
 
 mkDecls :: [PythonRequest] -> Text
 mkDecls reqs =
@@ -39,7 +40,7 @@ mkDecls reqs =
             urlAllTys (tydReq ^. reqUrl)
               <> maybeToList (tydReq ^. reqBody)
               <> maybeToList (tydReq ^. reqReturnType)
-      modul = pyMToModule $ foldM (\a b -> (<> a) <$> b) [] $ mapMaybe mkDecl (Set.toList allTys)
+      modul = pyMToModule $ (addImports defPyImports *>) $ foldM (\a b -> (<> a) <$> b) [] $ mapMaybe mkDecl (Set.toList allTys)
    in Parcel.prettyModule modul
 
 -- | Generate python functions that use the requests library.
@@ -55,15 +56,15 @@ requestsWithDef = generatePyRequestWith defCommonGeneratorOptions
 prettyT :: Py.Pretty a => a -> Text
 prettyT = tshow . Py.pretty
 
-defPyImports :: Text
+defPyImports :: [Py.Statement ()]
 defPyImports =
-  T.unlines
-    [ "from urllib import parse",
-      "from typing import *",
-      "from dataclasses import dataclass",
-      "", -- Separate stdlib from 3rd-party imports
-      "import requests"
-    ]
+  stmtExpr . v
+    <$> [ "from urllib import parse",
+          "from typing import *",
+          "from dataclasses import dataclass",
+          "", -- Separate stdlib from 3rd-party imports
+          "import requests"
+        ]
 
 stmtExpr :: Py.Expr () -> Py.Statement ()
 stmtExpr e = Py.StmtExpr e ()
@@ -81,13 +82,13 @@ genPyClient opts reqs =
 
 -- | python codegen with requests
 generatePyRequestWith :: CommonGeneratorOptions -> PythonRequest -> Py.Statement ()
-generatePyRequestWith opts req =
+generatePyRequestWith opts req@(PythonRequest tydReq) =
   Parcel.fun (functionName opts req) params (v returnTyStr) $
     concat
       [ [v "url" =: v (makePyUrl req)],
         maybeToList $ (v "params" =:) <$> paramDef,
         maybeToList $ (v "headers" =:) <$> headerDef,
-        [stmtExpr (v requestBuilder @ v <$> ("url" : reqCallArgs))]
+        [stmtExpr (v requestBuilder @= (arg (v "url") : remainingReqCall))]
       ]
       <> functionReturn (returnMode opts)
   where
@@ -106,12 +107,15 @@ generatePyRequestWith opts req =
     headers = retrieveHeaders req
     qparams = paramNamesAndTys req
     method = T.toLower $ getMethod req
-    reqCallArgs = remainingReqCall
 
-    remainingReqCall = map snd . filter fst $ zip bools strings
-      where
-        bools = [not . null $ headers, not . null $ qparams, hasBody req]
-        strings = ["headers=headers", "params=params", "json=data"]
+    remainingReqCall =
+      mconcat
+        [ [arg (v "headers=headers") | not . null $ headers],
+          [arg (v "params=params") | not . null $ qparams],
+          [ Py.ArgKeyword (ident "json") (encodeExpr (parcelToTy reqBodyRepr) (v "data")) ()
+            | reqBodyRepr <- maybeToList (tydReq ^. reqBody)
+          ]
+        ]
     paramDef = case qparams of
       [] -> Nothing
       qparams' -> Just $ toPyDict (fst <$> qparams')
