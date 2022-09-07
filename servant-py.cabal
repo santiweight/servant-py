@@ -87,6 +87,7 @@ test-suite servant-py-test
                      , directory
                      , hspec
                      , lens
+                     , parcel
                      , process
                      , QuickCheck
                      , servant

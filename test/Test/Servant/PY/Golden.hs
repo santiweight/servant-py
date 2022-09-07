@@ -26,6 +26,7 @@ import System.Process (readProcessWithExitCode)
 import Test.Tasty
 import Test.Tasty.Golden (goldenVsFileDiff)
 import Test.Tasty.HUnit (testCase)
+import Parcel (parcelUtilsFile)
 
 data Record = Record {n1 :: Int, n2 :: Int}
   deriving stock (Show, Generic)
@@ -59,7 +60,8 @@ tests =
     withResource
       ( do
           copyFile "test/resources/test_server.py" "test/out/test_server.py"
-          copyFile "test/resources/parcel_utils.py" "test/out/parcel_utils.py"
+          fp <- parcelUtilsFile
+          copyFile fp "test/out/parcel_utils.py"
           writeTypedPythonForAPI (Proxy @Api1) requests "test/out/api.py"
       )
       (\_ -> pure ())
