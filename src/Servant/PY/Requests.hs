@@ -8,7 +8,7 @@ module Servant.PY.Requests where
 import Control.Lens ((^.))
 import Control.Monad (foldM)
 import Data.Bifunctor
-import Data.Maybe (mapMaybe, maybeToList)
+import Data.Maybe (mapMaybe, maybeToList, fromMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -19,6 +19,7 @@ import Servant.Foreign
 import Servant.PY.Internal
 import Control.Monad.Writer.Strict (runWriter, execWriter)
 import Debug.Trace
+import Prelude hiding (return)
 
 -- | Generate python functions that use the requests library.
 --   Uses 'defCommonGeneratorOptions' for the generator options.
@@ -92,7 +93,7 @@ generatePyRequestWith opts req@(PythonRequest tydReq) =
         maybeToList $ (v "headers" =:) <$> headerDef,
         [stmtExpr (v requestBuilder @= (arg (v "url") : remainingReqCall))]
       ]
-      <> functionReturn (returnMode opts)
+      <> functionReturn  (returnMode opts) (maybe (TKnown TUnit) parcelToTy $ tydReq ^. reqReturnType)
   where
     returnTyStr = case req of
       PythonRequest tydReq -> maybe "None" (tyToPyTy . Parcel.parcelToTy) (tydReq ^. reqReturnType)
@@ -126,8 +127,8 @@ generatePyRequestWith opts req@(PythonRequest tydReq) =
       headers' -> Just $ getHeaderDict req
     requestBuilder = "resp = requests." <> method
 
-functionReturn :: ReturnStyle -> [Py.Statement ()]
-functionReturn DangerMode =
-  [Py.StmtExpr (v "resp.raise_for_status()") (), Py.StmtExpr (v "return resp.json()") ()]
-functionReturn RawResponse =
+functionReturn :: ReturnStyle -> Ty -> [Py.Statement ()]
+functionReturn DangerMode ty =
+  [Py.StmtExpr (v "resp.raise_for_status()") (), (return (decodeExpr ty (v "resp.json()")))]
+functionReturn RawResponse _ =
   [Py.StmtExpr (v "return resp") ()]
