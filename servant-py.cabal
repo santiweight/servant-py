@@ -30,6 +30,7 @@ library
     , containers
     , language-python
     , lens
+    , mtl
     , parcel
     , servant-foreign
     , servant

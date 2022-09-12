@@ -17,30 +17,32 @@ import Parcel
 import Parcel.Python.Gen
 import Servant.Foreign
 import Servant.PY.Internal
+import Control.Monad.Writer.Strict (runWriter, execWriter)
+import Debug.Trace
 
 -- | Generate python functions that use the requests library.
 --   Uses 'defCommonGeneratorOptions' for the generator options.
 requests :: PythonGenerator
-requests reqs = mkDecls reqs <> "\n" <> prettyT (genPyClient defCommonGeneratorOptions reqs)
+requests reqs reqsWithDeps = mkDecls (reqsWithDeps) <> "\n" <> prettyT (genPyClient defCommonGeneratorOptions reqs)
 
-mkDecls :: [PythonRequest] -> Text
+mkDecls :: [Req (ParcelM ParcelRepr)] -> Text
 mkDecls reqs =
   let tydReqs = flip mapMaybe reqs $ \case
-        PythonRequest tyReq -> Just tyReq
+        tyReq -> Just tyReq
 
       segmentAllTys = segmentTypeAllTys . unSegment
       segmentTypeAllTys = \case
         Static _ -> []
         Cap arg -> [arg ^. argType]
       pathAllTys = (>>= segmentAllTys)
-      urlAllTys (url :: Url Parcel.ParcelRepr) = pathAllTys (url ^. path) <> [] :: [Parcel.ParcelRepr]
+      urlAllTys (url :: Url (ParcelM Parcel.ParcelRepr)) = pathAllTys (url ^. path) <> [] :: [ParcelM ParcelRepr]
       allTys =
-        Set.fromList $
+        Set.fromList $ depsParcelM $ sequence $
           tydReqs >>= \tydReq ->
             urlAllTys (tydReq ^. reqUrl)
               <> maybeToList (tydReq ^. reqBody)
               <> maybeToList (tydReq ^. reqReturnType)
-      modul = pyMToModule $ (addImports defPyImports *>) $ foldM (\a b -> (<> a) <$> b) [] $ mapMaybe mkDecl (Set.toList allTys)
+      modul = pyMToModule $ (addImports defPyImports *>) $ foldM (\a b -> (<> a) <$> b) [] $ mapMaybe mkDecl (Set.toList $ traceShowId allTys)
    in Parcel.prettyModule modul
 
 -- | Generate python functions that use the requests library.

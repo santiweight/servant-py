@@ -67,7 +67,7 @@ import qualified Language.Python.Common as Py
 -- A 'PythonGenerator' just takes the data found in the API type
 -- for each endpoint and generates Python code as Text.
 -- There are `NoContent` requests and Text requests with typing information.
-type PythonGenerator = [PythonRequest] -> Text
+type PythonGenerator = [PythonRequest] -> [Req (ParcelM ParcelRepr)] -> Text
 
 newtype PythonRequest = PythonRequest (Req ParcelRepr)
   deriving (Eq, Show)
