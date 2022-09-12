@@ -43,7 +43,7 @@ mkDecls reqs =
             urlAllTys (tydReq ^. reqUrl)
               <> maybeToList (tydReq ^. reqBody)
               <> maybeToList (tydReq ^. reqReturnType)
-      modul = pyMToModule $ (addImports defPyImports *>) $ foldM (\a b -> (<> a) <$> b) [] $ mapMaybe mkDecl (Set.toList $ traceShowId allTys)
+      modul = pyMToModule $ (addImports defPyImports *>) $ foldM (\a b -> (<> a) <$> b) [] $ mapMaybe mkDecl (Set.toList $ allTys)
    in Parcel.prettyModule modul
 
 -- | Generate python functions that use the requests library.
