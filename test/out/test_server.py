@@ -3,6 +3,7 @@ import api
 
 port = int(sys.argv[1])
 
+# TODO there are two inappropriate str calls here, because headers are handled a little wrong
 client = api.Client("http://localhost:" + str(port))
 assert client.get_addparam(2, 3) == 5
 assert client.get_addparam(None, 3) == -1

@@ -16,11 +16,6 @@ build-type:          Simple
 extra-source-files:  README.md
 cabal-version:       >=1.10
 
-flag example
-  description: Build the example too
-  manual: True
-  default: False
-
 library
   hs-source-dirs:      src
   exposed-modules:     Servant.PY
@@ -42,32 +37,6 @@ library
   default-language:    Haskell2010
   default-extensions:  OverloadedStrings
   ghc-options:         -Wall
-
-executable servant-py-exe
-  ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N -fprint-potential-instances
-  hs-source-dirs: examples
-
-  if flag(example)
-    buildable: True
-  else
-    buildable: False
-  hs-source-dirs:      examples
-  main-is:             Main.hs
-  build-depends:       base
-                     , blaze-html
-                     , bytestring
-                     , servant-py
-                     , stm
-                     , aeson
-                     , wai
-                     , servant
-                     , servant-foreign
-                     , servant-server
-                     , servant-blaze
-                     , text
-                     , filepath
-                     , warp
-  default-language:    Haskell2010
 
 test-suite servant-py-test
   type:                exitcode-stdio-1.0
@@ -104,4 +73,4 @@ test-suite servant-py-test
 
 source-repository head
   type:     git
-  location: https://github.com/erewok/servant-py
+  location: https://github.com/santiweight/servant-py
