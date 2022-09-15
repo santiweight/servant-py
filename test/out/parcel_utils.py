@@ -36,3 +36,9 @@ def decode_map(data, key_from_str, decode_elem):
   for k, v in data:
     res[key_from_str(k)] = decode_elem(v)
   return res
+
+def decode_map_as_list(data, decode_key, decode_elem):
+  res = list()
+  for k, v in data:
+    res.append(decode_key(k), decode_elem(v))
+  return res

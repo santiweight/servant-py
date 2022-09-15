@@ -1,5 +1,6 @@
 import sys
 import api
+import parcel_utils
 
 port = int(sys.argv[1])
 
@@ -14,4 +15,6 @@ assert client.get_addheader(2, None) == -1
 assert client.post_addall_by_n1(1, 2, 3, str(4)) == 10
 assert client.post_addall_by_n1(1, None, 3, None) == 4
 assert client.post_addmap({1: 2, 3: 4}) == 10
+assert client.post_addmapnonprimkey([(api.Newtype("foo"), 1), (api.Newtype("bar"), 2)]) == 3
+assert client.post_addmapnonprimlistkey([(api.Newtype(["foo"]), 1), (api.Newtype(["bar"]), 2)]) == 3
 assert client.post_addrecord(api.Record(1,2)) == 3

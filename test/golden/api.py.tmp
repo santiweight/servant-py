@@ -27,6 +27,38 @@ class Record:
             res = json.load(f)
             return cls.decode(res)
 @dataclass (frozen=True)
+class Newtype:
+    contents : str
+    def encode(self) -> dict:
+        return self.contents
+    @classmethod
+    def decode(cls, json:dict ) -> Newtype:
+        return cls(contents=json["contents"])
+    @classmethod
+    def load(cls) -> Newtype:
+        currPath = Path(__file__)
+        dataDirPath = currPath.parent
+        jsonPath = dataDirPath / "data/Newtype.json"
+        with jsonPath.open() as f :
+            res = json.load(f)
+            return cls.decode(res)
+@dataclass (frozen=True)
+class ListNewtype:
+    contents : list[str]
+    def encode(self) -> dict:
+        return self.contents
+    @classmethod
+    def decode(cls, json:dict ) -> ListNewtype:
+        return cls(contents=parcel_utils.decode_list(json["contents"], lambda elem: elem))
+    @classmethod
+    def load(cls) -> ListNewtype:
+        currPath = Path(__file__)
+        dataDirPath = currPath.parent
+        jsonPath = dataDirPath / "data/ListNewtype.json"
+        with jsonPath.open() as f :
+            res = json.load(f)
+            return cls.decode(res)
+@dataclass (frozen=True)
 class Client:
     api_base : str
     def get_addparam(self, n1:Optional[int] , n2:Optional[int] ) -> int:
@@ -63,6 +95,16 @@ n1=parse.quote(str(n1)))
     def post_addmap(self, data:dict[int,int] ) -> int:
         url = self.api_base + "/add-map"
         resp = requests.post(url, json=parcel_utils.encode_map(data, lambda k: str(k), lambda v: v))
+        resp.raise_for_status()
+        return resp.json()
+    def post_addmapnonprimkey(self, data:list[Tuple[Newtype,int]] ) -> int:
+        url = self.api_base + "/add-map-non-prim-key"
+        resp = requests.post(url, json=parcel_utils.encode_map_as_list(data, lambda k: k.encode(), lambda v: v))
+        resp.raise_for_status()
+        return resp.json()
+    def post_addmapnonprimlistkey(self, data:list[Tuple[ListNewtype,int]] ) -> int:
+        url = self.api_base + "/add-map-non-prim-list-key"
+        resp = requests.post(url, json=parcel_utils.encode_map_as_list(data, lambda k: k.encode(), lambda v: v))
         resp.raise_for_status()
         return resp.json()
     def post_addrecord(self, data:Record ) -> int:

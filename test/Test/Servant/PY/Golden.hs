@@ -2,23 +2,29 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Test.Servant.PY.Golden where
 
 import Control.Applicative (liftA2)
 import Data.Aeson
+import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.Foldable (foldl')
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Proxy
+import Data.Text (Text)
+import Debug.Trace
 import GHC.Generics (Generic)
 import GHC.IO.Exception (ExitCode (..))
 import Network.Wai.Handler.Warp (defaultSettings, testWithApplicationSettings)
+import Parcel (parcelUtilsFile)
 import Servant
 import Servant.PY
 import System.Directory (copyFile)
@@ -26,11 +32,18 @@ import System.Process (readProcessWithExitCode)
 import Test.Tasty
 import Test.Tasty.Golden (goldenVsFileDiff)
 import Test.Tasty.HUnit (testCase)
-import Parcel (parcelUtilsFile)
 
 data Record = Record {n1 :: Int, n2 :: Int}
   deriving stock (Show, Generic)
   deriving anyclass (ToJSON, FromJSON)
+
+data Newtype = Newtype Text
+  deriving stock (Show, Generic, Eq, Ord)
+  deriving anyclass (ToJSON, FromJSON, ToJSONKey, FromJSONKey)
+
+data ListNewtype = ListNewtype [Text]
+  deriving stock (Show, Generic, Eq, Ord)
+  deriving anyclass (ToJSON, FromJSON, ToJSONKey, FromJSONKey)
 
 type Api1 =
   "add-param" :> QueryParam "n1" Integer :> QueryParam "n2" Integer :> Get '[JSON] Integer
@@ -44,6 +57,8 @@ type Api1 =
       :> ReqBody '[JSON] Integer
       :> Post '[JSON] Integer
     :<|> "add-map" :> ReqBody '[JSON] (Map Int Int) :> Post '[JSON] Int
+    :<|> "add-map-non-prim-key" :> ReqBody '[JSON] (Map Newtype Int) :> Post '[JSON] Int
+    :<|> "add-map-non-prim-list-key" :> ReqBody '[JSON] (Map ListNewtype Int) :> Post '[JSON] Int
     :<|> "add-record" :> ReqBody '[JSON] Record :> Post '[JSON] Int
 
 tests :: [TestTree]
@@ -67,11 +82,13 @@ tests =
       (\_ -> pure ())
       $ \_ -> do
         testCase "query_server" $
-          testWithApplicationSettings defaultSettings (pure $ serve (Proxy @Api1) addServer) $ \port -> do
-            (exitCode, _, stdErr) <- readProcessWithExitCode "python3" ["test/out/test_server.py", show port] ""
-            case exitCode of
-              ExitSuccess -> pure ()
-              ExitFailure _ -> error stdErr
+          testWithApplicationSettings
+            defaultSettings (pure $ do !_ <- (traceShowM $ BSL.unpack $ encode (Map.singleton (Newtype "foo") (1 :: Int))); serve (Proxy @Api1) addServer)
+            $ \port -> do
+              (exitCode, _, stdErr) <- readProcessWithExitCode "python3" ["test/out/test_server.py", show port] ""
+              case exitCode of
+                ExitSuccess -> pure ()
+                ExitFailure _ -> error stdErr
   ]
 
 addServer :: Server Api1
@@ -82,6 +99,8 @@ addServer =
     :<|> (\n1May n2 -> pure $ maybe (-1) (+ n2) n1May)
     :<|> (\n1 (fromMaybe 0 -> n2) (fromMaybe 0 -> n3) n4 -> pure $ n1 + n2 + n3 + n4)
     :<|> (pure . foldl' (+) 0 . fmap (uncurry (+)) . Map.toList)
+    :<|> (pure . sum)
+    :<|> (pure . sum)
     :<|> (\Record {..} -> pure $ n1 + n2)
 
 differ :: FilePath -> FilePath -> [String]
