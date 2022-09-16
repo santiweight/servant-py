@@ -12,37 +12,37 @@ from urllib import parse
 import requests
 @dataclass (frozen=True)
 class SingleConstr:
-    contents : str
+    value : str
     def encode(self) -> dict:
-        return self.contents
+        return self.value
     @classmethod
     def decode(cls, json:dict ) -> SingleConstr:
-        return cls(contents=json["contents"])
+        return cls(value=json["value"])
 @dataclass (frozen=True)
 class Record:
     n1 : int
     n2 : int
     def encode(self) -> dict:
-        return {"tag": "Record", "n1": self.n1, "n2": self.n2}
+        return {"n1": self.n1, "n2": self.n2}
     @classmethod
     def decode(cls, json:dict ) -> Record:
         return cls(n1=json["n1"], n2=json["n2"])
 @dataclass (frozen=True)
 class Newtype:
-    contents : str
+    value : str
     def encode(self) -> dict:
-        return self.contents
+        return self.value
     @classmethod
     def decode(cls, json:dict ) -> Newtype:
-        return cls(contents=json["contents"])
+        return cls(value=json["value"])
 @dataclass (frozen=True)
 class ListNewtype:
-    contents : list[str]
+    value : list[str]
     def encode(self) -> dict:
-        return self.contents
+        return parcel_utils.encode_list(self.value, lambda elem: elem)
     @classmethod
     def decode(cls, json:dict ) -> ListNewtype:
-        return cls(contents=parcel_utils.decode_list(json["contents"], lambda elem: elem))
+        return cls(value=parcel_utils.decode_list(json["value"], lambda elem: elem))
 class EitherIntNewtype(ABC):
     @abstractmethod
     def encode(self) -> dict:
@@ -50,21 +50,21 @@ class EitherIntNewtype(ABC):
     @classmethod
     def decode(cls, json:dict ) -> EitherIntNewtype:
         if json['tag'] == "LeftInt":
-            return LeftInt(contents=json['contents'])
+            return LeftInt(value=json['value'])
         elif json['tag'] == "RightNewtype":
-            return RightNewtype(contents=Newtype.decode(json['contents']))
+            return RightNewtype(value=Newtype.decode(json['value']))
         else:
             raise
 @dataclass (frozen=True)
 class LeftInt(EitherIntNewtype):
-    contents : int
+    value : int
     def encode(self) -> dict:
-        return {"tag": "LeftInt", "contents": self.contents}
+        return {"tag": "LeftInt", "contents": self.value}
 @dataclass (frozen=True)
 class RightNewtype(EitherIntNewtype):
-    contents : Newtype
+    value : Newtype
     def encode(self) -> dict:
-        return {"tag": "RightNewtype", "contents": self.contents.encode()}
+        return {"tag": "RightNewtype", "contents": self.value.encode()}
 @dataclass (frozen=True)
 class Client:
     api_base : str

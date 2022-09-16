@@ -57,7 +57,7 @@ requestsWithDef :: PythonRequest -> Py.Statement ()
 requestsWithDef = generatePyRequestWith defCommonGeneratorOptions
 
 prettyT :: Py.Pretty a => a -> Text
-prettyT = tshow . Py.pretty
+prettyT = Parcel.tshow . Py.pretty
 
 defPyImports :: [Py.Statement ()]
 defPyImports =
