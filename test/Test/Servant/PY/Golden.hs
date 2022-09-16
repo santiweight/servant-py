@@ -37,11 +37,19 @@ data Record = Record {n1 :: Int, n2 :: Int}
   deriving stock (Show, Generic)
   deriving anyclass (ToJSON, FromJSON)
 
-data Newtype = Newtype Text
+newtype Newtype = Newtype Text
+  deriving stock (Show, Generic, Eq, Ord)
+  deriving anyclass (ToJSON, FromJSON, ToJSONKey, FromJSONKey)
+
+data SingleConstr = SingleConstr Text
   deriving stock (Show, Generic, Eq, Ord)
   deriving anyclass (ToJSON, FromJSON, ToJSONKey, FromJSONKey)
 
 data ListNewtype = ListNewtype [Text]
+  deriving stock (Show, Generic, Eq, Ord)
+  deriving anyclass (ToJSON, FromJSON, ToJSONKey, FromJSONKey)
+
+data EitherIntNewtype = LeftInt Int | RightNewtype Newtype
   deriving stock (Show, Generic, Eq, Ord)
   deriving anyclass (ToJSON, FromJSON, ToJSONKey, FromJSONKey)
 
@@ -57,8 +65,10 @@ type Api1 =
       :> ReqBody '[JSON] Integer
       :> Post '[JSON] Integer
     :<|> "add-map" :> ReqBody '[JSON] (Map Int Int) :> Post '[JSON] Int
-    :<|> "add-map-non-prim-key" :> ReqBody '[JSON] (Map Newtype Int) :> Post '[JSON] Int
-    :<|> "add-map-non-prim-list-key" :> ReqBody '[JSON] (Map ListNewtype Int) :> Post '[JSON] Int
+    :<|> "add-map-newtype-key" :> ReqBody '[JSON] (Map Newtype Int) :> Post '[JSON] Int
+    :<|> "add-map-newtype-list-key" :> ReqBody '[JSON] (Map ListNewtype Int) :> Post '[JSON] Int
+    :<|> "add-map-single-constr-key" :> ReqBody '[JSON] (Map SingleConstr Int) :> Post '[JSON] Int
+    :<|> "add-map-sumty-key" :> ReqBody '[JSON] (Map EitherIntNewtype Int) :> Post '[JSON] Int
     :<|> "add-record" :> ReqBody '[JSON] Record :> Post '[JSON] Int
 
 tests :: [TestTree]
@@ -83,9 +93,10 @@ tests =
       $ \_ -> do
         testCase "query_server" $
           testWithApplicationSettings
-            defaultSettings (pure $ do !_ <- (traceShowM $ BSL.unpack $ encode (Map.singleton (Newtype "foo") (1 :: Int))); serve (Proxy @Api1) addServer)
+            defaultSettings (pure $ do !_ <- (traceM $ BSL.unpack $ encode (Map.singleton (Newtype "foo") (1 :: Int))); serve (Proxy @Api1) addServer)
             $ \port -> do
-              (exitCode, _, stdErr) <- readProcessWithExitCode "python3" ["test/out/test_server.py", show port] ""
+              (exitCode, stdOut, stdErr) <- readProcessWithExitCode "python3" ["test/out/test_server.py", show port] ""
+              traceM stdOut
               case exitCode of
                 ExitSuccess -> pure ()
                 ExitFailure _ -> error stdErr
@@ -99,6 +110,8 @@ addServer =
     :<|> (\n1May n2 -> pure $ maybe (-1) (+ n2) n1May)
     :<|> (\n1 (fromMaybe 0 -> n2) (fromMaybe 0 -> n3) n4 -> pure $ n1 + n2 + n3 + n4)
     :<|> (pure . foldl' (+) 0 . fmap (uncurry (+)) . Map.toList)
+    :<|> (pure . sum)
+    :<|> (pure . sum)
     :<|> (pure . sum)
     :<|> (pure . sum)
     :<|> (\Record {..} -> pure $ n1 + n2)

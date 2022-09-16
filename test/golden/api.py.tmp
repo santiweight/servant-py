@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import parcel_utils
+from abc import (ABC, abstractmethod)
 from dataclasses import dataclass
 from pathlib import Path
 from typing import *
@@ -10,6 +11,14 @@ from typing import *
 from urllib import parse
 import requests
 @dataclass (frozen=True)
+class SingleConstr:
+    contents : str
+    def encode(self) -> dict:
+        return self.contents
+    @classmethod
+    def decode(cls, json:dict ) -> SingleConstr:
+        return cls(contents=json["contents"])
+@dataclass (frozen=True)
 class Record:
     n1 : int
     n2 : int
@@ -18,14 +27,6 @@ class Record:
     @classmethod
     def decode(cls, json:dict ) -> Record:
         return cls(n1=json["n1"], n2=json["n2"])
-    @classmethod
-    def load(cls) -> Record:
-        currPath = Path(__file__)
-        dataDirPath = currPath.parent
-        jsonPath = dataDirPath / "data/Record.json"
-        with jsonPath.open() as f :
-            res = json.load(f)
-            return cls.decode(res)
 @dataclass (frozen=True)
 class Newtype:
     contents : str
@@ -34,14 +35,6 @@ class Newtype:
     @classmethod
     def decode(cls, json:dict ) -> Newtype:
         return cls(contents=json["contents"])
-    @classmethod
-    def load(cls) -> Newtype:
-        currPath = Path(__file__)
-        dataDirPath = currPath.parent
-        jsonPath = dataDirPath / "data/Newtype.json"
-        with jsonPath.open() as f :
-            res = json.load(f)
-            return cls.decode(res)
 @dataclass (frozen=True)
 class ListNewtype:
     contents : list[str]
@@ -50,14 +43,28 @@ class ListNewtype:
     @classmethod
     def decode(cls, json:dict ) -> ListNewtype:
         return cls(contents=parcel_utils.decode_list(json["contents"], lambda elem: elem))
+class EitherIntNewtype(ABC):
+    @abstractmethod
+    def encode(self) -> dict:
+        pass
     @classmethod
-    def load(cls) -> ListNewtype:
-        currPath = Path(__file__)
-        dataDirPath = currPath.parent
-        jsonPath = dataDirPath / "data/ListNewtype.json"
-        with jsonPath.open() as f :
-            res = json.load(f)
-            return cls.decode(res)
+    def decode(cls, json:dict ) -> EitherIntNewtype:
+        if json['tag'] == "LeftInt":
+            return LeftInt(contents=json['contents'])
+        elif json['tag'] == "RightNewtype":
+            return RightNewtype(contents=Newtype.decode(json['contents']))
+        else:
+            raise
+@dataclass (frozen=True)
+class LeftInt(EitherIntNewtype):
+    contents : int
+    def encode(self) -> dict:
+        return {"tag": "LeftInt", "contents": self.contents}
+@dataclass (frozen=True)
+class RightNewtype(EitherIntNewtype):
+    contents : Newtype
+    def encode(self) -> dict:
+        return {"tag": "RightNewtype", "contents": self.contents.encode()}
 @dataclass (frozen=True)
 class Client:
     api_base : str
@@ -97,13 +104,23 @@ n1=parse.quote(str(n1)))
         resp = requests.post(url, json=parcel_utils.encode_map(data, lambda k: str(k), lambda v: v))
         resp.raise_for_status()
         return resp.json()
-    def post_addmapnonprimkey(self, data:list[Tuple[Newtype,int]] ) -> int:
-        url = self.api_base + "/add-map-non-prim-key"
+    def post_addmapnewtypekey(self, data:list[Tuple[Newtype,int]] ) -> int:
+        url = self.api_base + "/add-map-newtype-key"
         resp = requests.post(url, json=parcel_utils.encode_map_as_list(data, lambda k: k.encode(), lambda v: v))
         resp.raise_for_status()
         return resp.json()
-    def post_addmapnonprimlistkey(self, data:list[Tuple[ListNewtype,int]] ) -> int:
-        url = self.api_base + "/add-map-non-prim-list-key"
+    def post_addmapnewtypelistkey(self, data:list[Tuple[ListNewtype,int]] ) -> int:
+        url = self.api_base + "/add-map-newtype-list-key"
+        resp = requests.post(url, json=parcel_utils.encode_map_as_list(data, lambda k: k.encode(), lambda v: v))
+        resp.raise_for_status()
+        return resp.json()
+    def post_addmapsingleconstrkey(self, data:list[Tuple[SingleConstr,int]] ) -> int:
+        url = self.api_base + "/add-map-single-constr-key"
+        resp = requests.post(url, json=parcel_utils.encode_map_as_list(data, lambda k: k.encode(), lambda v: v))
+        resp.raise_for_status()
+        return resp.json()
+    def post_addmapsumtykey(self, data:list[Tuple[EitherIntNewtype,int]] ) -> int:
+        url = self.api_base + "/add-map-sumty-key"
         resp = requests.post(url, json=parcel_utils.encode_map_as_list(data, lambda k: k.encode(), lambda v: v))
         resp.raise_for_status()
         return resp.json()
