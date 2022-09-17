@@ -38,7 +38,7 @@ def encode_optional(data, encode_elem):
 
 def decode_map(data, key_from_str, decode_elem):
     res = dict()
-    for k, v in data:
+    for k, v in data.items():
         res[key_from_str(k)] = decode_elem(v)
     return res
 

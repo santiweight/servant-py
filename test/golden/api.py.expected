@@ -17,7 +17,7 @@ class SingleConstr:
         return self.value
     @classmethod
     def decode(cls, json:dict ) -> SingleConstr:
-        return cls(value=json["value"])
+        return cls(value=json)
 @dataclass (frozen=True)
 class Record:
     n1 : int
@@ -34,7 +34,7 @@ class Newtype:
         return self.value
     @classmethod
     def decode(cls, json:dict ) -> Newtype:
-        return cls(value=json["value"])
+        return cls(value=json)
 @dataclass (frozen=True)
 class ListNewtype:
     value : list[str]
@@ -42,7 +42,7 @@ class ListNewtype:
         return parcel_utils.encode_list(self.value, lambda elem: elem)
     @classmethod
     def decode(cls, json:dict ) -> ListNewtype:
-        return cls(value=parcel_utils.decode_list(json["value"], lambda elem: elem))
+        return cls(value=parcel_utils.decode_list(json, lambda elem: elem))
 class EitherIntNewtype(ABC):
     @abstractmethod
     def encode(self) -> dict:
