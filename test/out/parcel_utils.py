@@ -1,5 +1,11 @@
 from typing import *
 
+def encode_bool(bool):
+  return "true" if bool else "false"
+
+def decode_bool(json):
+  return bool(json)
+
 # TODO type hints
 def decode_list(json, decode_elem):
     res = list()
