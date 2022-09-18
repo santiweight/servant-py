@@ -24,7 +24,7 @@ def encode_map(data, key_to_str, encode_elem):
 
 def encode_map_as_list(data, encode_key, encode_elem):
     res = list()
-    for k, v in data:
+    for k, v in data.items():
         res.append([encode_key(k), encode_elem(v)])
     return res
 
@@ -43,8 +43,8 @@ def decode_map(data, key_from_str, decode_elem):
     return res
 
 
-def decode_map_as_list(data, decode_key, decode_elem):
-    res = list()
+def decode_map_from_list(data, decode_key, decode_elem):
+    res = dict()
     for k, v in data:
-        res.append((decode_key(k), decode_elem(v)))
+        res[decode_key(k)] = decode_elem(v)
     return res

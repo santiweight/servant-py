@@ -45,7 +45,7 @@ data SingleConstr = SingleConstr Text
   deriving stock (Show, Generic, Eq, Ord)
   deriving anyclass (ToJSON, FromJSON, ToJSONKey, FromJSONKey)
 
-data ListNewtype = ListNewtype [Text]
+data TupleNewtype = TupleNewtype (Text, Int)
   deriving stock (Show, Generic, Eq, Ord)
   deriving anyclass (ToJSON, FromJSON, ToJSONKey, FromJSONKey)
 
@@ -66,7 +66,7 @@ type Api1 =
       :> Post '[JSON] Integer
     :<|> "add-map" :> ReqBody '[JSON] (Map Int Int) :> Post '[JSON] Int
     :<|> "add-map-newtype-key" :> ReqBody '[JSON] (Map Newtype Int) :> Post '[JSON] Int
-    :<|> "add-map-newtype-list-key" :> ReqBody '[JSON] (Map ListNewtype Int) :> Post '[JSON] Int
+    :<|> "add-map-newtype-list-key" :> ReqBody '[JSON] (Map TupleNewtype Int) :> Post '[JSON] Int
     :<|> "add-map-single-constr-key" :> ReqBody '[JSON] (Map SingleConstr Int) :> Post '[JSON] Int
     :<|> "add-map-sumty-key" :> ReqBody '[JSON] (Map EitherIntNewtype Int) :> Post '[JSON] Int
     :<|> "add-record" :> ReqBody '[JSON] Record :> Post '[JSON] Int
