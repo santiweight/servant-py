@@ -30,7 +30,6 @@ mkDecls :: [Req (ParcelM ParcelRepr)] -> Text
 mkDecls reqs =
   let tydReqs = flip mapMaybe reqs $ \case
         tyReq -> Just tyReq
-
       segmentAllTys = segmentTypeAllTys . unSegment
       segmentTypeAllTys = \case
         Static _ -> []
@@ -38,7 +37,7 @@ mkDecls reqs =
       pathAllTys = (>>= segmentAllTys)
       urlAllTys (url :: Url (ParcelM Parcel.ParcelRepr)) = pathAllTys (url ^. path) <> [] :: [ParcelM ParcelRepr]
       allTys =
-        Set.fromList $ depsParcelM $ sequence $
+        Set.fromList $ concat $ fmap allReprsParcelM $
           tydReqs >>= \tydReq ->
             urlAllTys (tydReq ^. reqUrl)
               <> maybeToList (tydReq ^. reqBody)
