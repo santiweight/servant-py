@@ -17,7 +17,7 @@ import Parcel
 data Python
 
 instance Parcel a => HasForeignType Python ParcelRepr a where
-  typeFor _ _ _ = evalParcelM $ repr (Proxy @a)
+  typeFor _ _ _ = evalParcelM $ reprM (Proxy @a)
 
 instance Parcel a => HasForeignType Python (ParcelM ParcelRepr) a where
-  typeFor _ _ _ = repr (Proxy @a)
+  typeFor _ _ _ = reprM (Proxy @a)
