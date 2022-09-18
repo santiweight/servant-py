@@ -50,9 +50,9 @@ class EitherIntNewtype(ABC):
     @classmethod
     def decode(cls, json:dict ) -> EitherIntNewtype:
         if json['tag'] == "LeftInt":
-            return LeftInt(value=json['contents'])
+            return LeftInt(value=json["contents"])
         elif json['tag'] == "RightNewtype":
-            return RightNewtype(value=Newtype.decode(json['contents']))
+            return RightNewtype(value=Newtype.decode(json["contents"]))
         else:
             raise
 @dataclass (frozen=True)
