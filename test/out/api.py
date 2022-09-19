@@ -3,7 +3,6 @@ import json
 import parcel_utils
 from abc import (ABC, abstractmethod)
 from dataclasses import dataclass
-from pathlib import Path
 from typing import *
 
 from dataclasses import dataclass
